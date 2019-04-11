@@ -1,0 +1,259 @@
+import itertools
+import    re 
+import time
+from string import punctuation
+
+
+class PlayFair(object):
+    
+    def __init__(self, key):
+        key = key.lower()
+        self.key = key
+        
+        used = [False for _ in range(26)]
+        
+        self.vector = []
+        for i in range(5):
+            self.vector.append(['' for _ in range(5)])
+            
+        row = 0
+        col = 0
+        a = ord('a')
+        for k in key:
+            if k != ' ' and used[ord(k) - a] == False:
+                self.vector[row][col] = k
+                used[ord(k) - a] = True
+                
+                col += 1
+                if col == 5:
+                    col = 0
+                    row += 1
+                    
+        for i in range(26):
+            letter = chr(a + i)
+            if letter and not used[i] and letter != 'j':
+                self.vector[row][col] = letter
+                col += 1
+                if col == 5:
+                    col = 0
+                    row += 1
+                
+        inverted = {}
+        for row in range(5):
+            for col in range(5):
+                inverted[self.vector[row][col]] = (row, col)
+                
+        self.inverted = inverted;
+
+    
+    def get_next_in_column(self, letter):
+        pos =  self.inverted[letter]
+        if pos[0] == 4:
+            return self.vector[0][pos[1]]
+        
+        return self.vector[pos[0] + 1][pos[1]]
+    
+    def get_prev_in_column(self, letter):
+        pos = self.inverted[letter]
+        if pos[0] == 0:
+            return self.vector[4][pos[1]]
+        
+        return self.vector[pos[0] - 1][pos[1]]
+   
+    def get_next_in_row(self, letter):
+        pos = self.inverted[letter]
+    
+        if pos[1] == 4:
+            return self.vector[pos[0]][0]
+        
+        return self.vector[pos[0]][pos[1] + 1]
+    
+    
+    def get_prev_in_row(self, letter):
+        pos = self.inverted[letter]
+    
+        if pos[1] == 0:
+            return self.vector[pos[0]][4]
+        
+        return self.vector[pos[0]][pos[1] - 1]
+    
+        
+    def clean_up(self, text):
+        '''
+        Clearn up.
+        
+        Removes punctuation and spaces.
+        '''
+        r = re.compile(r'[{}]+'.format(re.escape(punctuation + ' ')))
+        text = r.sub('', text.lower())
+        return text
+    
+    def make_bigrams(self, text):
+        bigrams = []
+        
+
+        i = 0
+        while i < len(text):     
+            b = text[i] + text[i+1]
+            if b[0] == b[1]:
+                bigrams.append(b[0] + 'x')
+                i += 1
+            else:
+                bigrams.append(b) 
+                i += 2
+                    
+        return bigrams
+        
+        
+    def encrypt_file(self, filename):
+        '''
+        Encrypts the given file
+        '''
+        
+        with open(filename) as fp:
+            return self.encrypt(fp.read())
+        
+        
+    def decrypt(self, cipher_text):
+        bigrams = self.make_bigrams(cipher_text)
+        plain_text = []
+        
+        for b in bigrams:
+            x1, y1 = self.inverted[b[0]]
+            x2, y2 = self.inverted[b[1]]
+            
+            if x1 == x2:
+                plain_text.append(self.get_prev_in_row(b[0]))
+                plain_text.append(self.get_prev_in_row(b[1]))
+                
+            elif y1 == y2:
+                plain_text.append(self.get_prev_in_column(b[0]))
+                plain_text.append(self.get_prev_in_column(b[1]))
+
+            else:
+                plain_text.append(self.vector[x1][y2])
+                plain_text.append(self.vector[x2][y1])
+                
+                
+        return "".join(plain_text)
+                
+    def encrypt(self, plain_text):
+        '''
+        Encrypts the given text
+        '''
+        plain_text = self.clean_up(plain_text)
+        bigrams = self.make_bigrams(plain_text)
+        cipher_text = []
+        for b in bigrams:
+            x1, y1 = self.inverted[b[0]]
+            x2, y2 = self.inverted[b[1]]
+
+            if x1 == x2:
+                cipher_text.append(self.get_next_in_row(b[0]))
+                cipher_text.append(self.get_next_in_row(b[1]))
+                
+            elif y1 == y2:
+                cipher_text.append(self.get_next_in_column(b[0]))
+                cipher_text.append(self.get_next_in_column(b[1]))
+
+            else:
+                cipher_text.append(self.vector[x1][y2])
+                cipher_text.append(self.vector[x2][y1])
+                
+                
+        return "".join(cipher_text)
+
+    def __repr__(self):
+        return self.__str__()
+   
+    def __str__(self):
+        return "\n".join([" ".join(self.vector[i]) for i in range(5)])
+
+
+class Cracker(object):
+    def __init__(self, possibles):
+        self.possibles = possibles
+    
+    def build_dictionary(self, filename):
+        words = {n:set() for n in range(32)}
+        with open(filename) as fp:
+            for line in fp:
+                word = line.strip()
+                l = len(word)
+                words[l].add(word)
+ 
+        return words
+                
+    def crack(self, filename):
+        words = self.build_dictionary("index.txt")
+        
+        with open(filename) as fp:
+            data = fp.read().strip()
+            sub = data[:10]
+            x = 0
+            champion = 0
+            champion_key = ""
+
+            for perm in itertools.permutations(possible):
+                x += 1
+                p = PlayFair("".join(perm))
+                dec = p.decrypt(sub)
+                score = 0
+                
+                for i in range(10):
+                    for j in range(1, 8):
+                        if i + j == 10: break
+                        word = dec[i:i+j]
+                        if word in words[j]:
+                            score += j
+                            
+                if score >= 5:
+                    sub = data[:30]
+    
+                    score = 0
+                    dec = p.decrypt(sub)
+    
+                    for i in range(20):
+                        for j in range(1, 8):
+                            if i + j == 30: break
+                            word = dec[i:i+j]
+                            if word in words[j]:
+                                score += j
+                    
+                    if score >= 20:
+                        dec = p.decrypt(data)
+                        print(x, p.key, dec)
+        
+    
+if __name__ == '__main__':
+    
+    p = PlayFair('playfair example')
+    print(p.encrypt("Hide the gold in the tree stump"))
+    print(p.decrypt(p.encrypt("Hide the gold in the tree stump")))
+    
+    p = PlayFair('key')
+    with open('16_x.txt') as fp:
+        cipher = fp.read()
+        assert cipher == p.encrypt_file('16_l.txt')
+        print('ok')
+
+    # the following bit demonstrates that cracking the 16_x cipher works with a 
+    # made up candidate of 6 letters length
+    possible = 'abceky'
+    crack = Cracker(possible)
+    crack.crack('16_x.txt')
+    print('------')
+
+    # Since the number itself is hard coded, we just build the potential key
+    # as a string literal
+    # 50434993
+
+    #possible = "".join(set(list("five" "zero" "four" "three" "four" "nine" "nine" "three")))
+    possible = "".join(set(list("three" "nine" "five" "four"   "zero" )))  
+    t1 = time.time()
+    crack = Cracker(possible)
+    crack.crack('13_x2.txt')
+    t2 = time.time()
+    print(t2 - t1)
+    
+    
